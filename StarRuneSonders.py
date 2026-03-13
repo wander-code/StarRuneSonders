@@ -12,9 +12,20 @@ DATATYPES = {
 
 OUTPUT_KEYWORDS = {"reveal", "echo"}
 INPUT_KEYWORD = "seek"
+
+IF_KEYWORD = "eyes"
+WHILE_KEYWORD = "stream"
+CLASS_KEYWORD = "forge"
+OBJECT_KEYWORD = "bind"
+
 ASSIGNMENT_OPERATOR = "~"
 DELIMITER = "."
+
 SYMBOL_TABLE = {}
+CLASS_TABLE = {}
+OBJECT_TABLE = {}
+
+MAX_STREAM_ITERATIONS = 5
 
 
 class CompilerError(Exception):
@@ -93,6 +104,14 @@ def classify_token(token):
         return "Output Keyword"
     if value == INPUT_KEYWORD:
         return "Input Keyword"
+    if value == IF_KEYWORD:
+        return "Eyes Keyword"
+    if value == WHILE_KEYWORD:
+        return "Stream Keyword"
+    if value == CLASS_KEYWORD:
+        return "Class Keyword"
+    if value == OBJECT_KEYWORD:
+        return "Object Keyword"
     if kind == "ASSIGN":
         return "Assignment Operator"
     if kind == "COLON":
@@ -144,9 +163,6 @@ def parse(tokens):
         )
         tokens = tokens + [{"type": "DELIMITER", "value": DELIMITER}]
 
-    if tokens[-1]["value"] != DELIMITER:
-        raise CompilerError("Syntax Error", "Statement must end with '.'.", "Phrase-Level Recovery (Insert delimiter)")
-
     core_tokens = tokens[:-1]
 
     if not core_tokens:
@@ -157,18 +173,36 @@ def parse(tokens):
     if first in DATATYPES:
         story("\n[PARSER] You study the cabin's strange grammar...")
         story("  Rule checked: <declaration> -> <datatype> <identifier> ~ <expression> .")
-        ast_node = parse_declaration(core_tokens)
-        return ast_node, syntax_notes
+        return parse_declaration(core_tokens), syntax_notes
 
     if first in OUTPUT_KEYWORDS:
         story("\n[PARSER] You speak into the stillness of the room...")
         story("  Rule checked: <output> -> <output_keyword> : <expression> .")
-        ast_node = parse_output(core_tokens)
-        return ast_node, syntax_notes
+        return parse_output(core_tokens), syntax_notes
+
+    if first == IF_KEYWORD:
+        story("\n[PARSER] The cabin tests whether your eyes are open to truth...")
+        story(f"  Rule checked: <eyes> -> {IF_KEYWORD} : <condition> : <action> .")
+        return parse_eyes(core_tokens), syntax_notes
+
+    if first == WHILE_KEYWORD:
+        story("\n[PARSER] The cabin yields to the stream of repeating motion...")
+        story(f"  Rule checked: <stream> -> {WHILE_KEYWORD} : <condition> : <action> .")
+        return parse_stream(core_tokens), syntax_notes
+
+    if first == CLASS_KEYWORD:
+        story("\n[PARSER] A new structure is being forged in memory...")
+        story("  Rule checked: <class_decl> -> forge <ClassName> .")
+        return parse_class_declaration(core_tokens), syntax_notes
+
+    if first == OBJECT_KEYWORD:
+        story("\n[PARSER] A structure is being bound into form...")
+        story("  Rule checked: <object_inst> -> bind <ClassName> <objectName> .")
+        return parse_object_instantiation(core_tokens), syntax_notes
 
     raise CompilerError(
         "Syntax Error",
-        f"Unknown statement start '{first}'. Expected a datatype or an output keyword.",
+        f"Unknown statement start '{first}'. Expected datatype, output, eyes, stream, forge, or bind.",
         "Panic Mode Recovery (Discard statement)"
     )
 
@@ -190,25 +224,18 @@ def parse_declaration(core_tokens):
         raise CompilerError("Syntax Error", f"Unknown datatype '{datatype['value']}'.")
 
     if identifier["type"] != "IDENTIFIER":
-        raise CompilerError(
-            "Syntax Error",
-            f"Expected an identifier after datatype, but found '{identifier['value']}'."
-        )
+        raise CompilerError("Syntax Error", f"Expected identifier, found '{identifier['value']}'.")
 
-    if identifier["value"] in DATATYPES or identifier["value"] in OUTPUT_KEYWORDS or identifier["value"] == INPUT_KEYWORD:
-        raise CompilerError(
-            "Syntax Error",
-            f"'{identifier['value']}' is reserved and cannot be used as an identifier."
-        )
+    if identifier["value"] in DATATYPES or identifier["value"] in OUTPUT_KEYWORDS or identifier["value"] in {
+        INPUT_KEYWORD, IF_KEYWORD, WHILE_KEYWORD, CLASS_KEYWORD, OBJECT_KEYWORD
+    }:
+        raise CompilerError("Syntax Error", f"'{identifier['value']}' is reserved and cannot be used as an identifier.")
 
     if assign["value"] != ASSIGNMENT_OPERATOR:
         raise CompilerError(
             "Syntax Error",
             f"Expected assignment operator '{ASSIGNMENT_OPERATOR}', but found '{assign['value']}'."
         )
-
-    if not expression_tokens:
-        raise CompilerError("Syntax Error", "Missing expression after assignment operator.")
 
     return {
         "node_type": "declaration",
@@ -229,32 +256,107 @@ def parse_output(core_tokens):
     if core_tokens[1]["value"] != ":":
         raise CompilerError(
             "Syntax Error",
-            f"Expected ':' after output keyword, but found '{core_tokens[1]['value']}'.",
-            "Panic Mode Recovery (Discard malformed output)"
+            f"Expected ':' after output keyword, but found '{core_tokens[1]['value']}'."
         )
-
-    expression_tokens = core_tokens[2:]
-    if not expression_tokens:
-        raise CompilerError("Syntax Error", "Missing expression after ':' in output statement.")
 
     return {
         "node_type": "output",
         "keyword": core_tokens[0]["value"],
-        "expression": expression_tokens
+        "expression": core_tokens[2:]
+    }
+
+
+def split_by_colons(tokens, expected_parts):
+    colon_positions = [i for i, t in enumerate(tokens) if t["value"] == ":"]
+    if len(colon_positions) < expected_parts - 1:
+        raise CompilerError("Syntax Error", "Missing ':' separator in control structure.")
+
+    parts = []
+    start = 0
+    for pos in colon_positions[:expected_parts - 1]:
+        parts.append(tokens[start:pos])
+        start = pos + 1
+    parts.append(tokens[start:])
+    return parts
+
+
+def parse_eyes(core_tokens):
+    parts = split_by_colons(core_tokens, 3)
+
+    if not (len(parts[0]) == 1 and parts[0][0]["value"] == IF_KEYWORD):
+        raise CompilerError("Syntax Error", "Malformed eyes statement.")
+
+    condition_tokens = parts[1]
+    action_tokens = parts[2]
+
+    if not condition_tokens or not action_tokens:
+        raise CompilerError("Syntax Error", "Eyes statement requires both condition and action.")
+
+    return {
+        "node_type": "eyes",
+        "condition": condition_tokens,
+        "action_tokens": action_tokens
+    }
+
+
+def parse_stream(core_tokens):
+    parts = split_by_colons(core_tokens, 3)
+
+    if not (len(parts[0]) == 1 and parts[0][0]["value"] == WHILE_KEYWORD):
+        raise CompilerError("Syntax Error", "Malformed stream statement.")
+
+    condition_tokens = parts[1]
+    action_tokens = parts[2]
+
+    if not condition_tokens or not action_tokens:
+        raise CompilerError("Syntax Error", "Stream statement requires both condition and action.")
+
+    return {
+        "node_type": "stream",
+        "condition": condition_tokens,
+        "action_tokens": action_tokens
+    }
+
+
+def parse_class_declaration(core_tokens):
+    if len(core_tokens) != 2:
+        raise CompilerError("Syntax Error", "Expected: forge <ClassName> .")
+
+    class_name = core_tokens[1]
+    if class_name["type"] != "IDENTIFIER":
+        raise CompilerError("Syntax Error", f"Expected class name, found '{class_name['value']}'.")
+
+    return {
+        "node_type": "class_decl",
+        "class_name": class_name["value"]
+    }
+
+
+def parse_object_instantiation(core_tokens):
+    if len(core_tokens) != 3:
+        raise CompilerError("Syntax Error", "Expected: bind <ClassName> <objectName> .")
+
+    class_name = core_tokens[1]
+    object_name = core_tokens[2]
+
+    if class_name["type"] != "IDENTIFIER":
+        raise CompilerError("Syntax Error", f"Expected class name, found '{class_name['value']}'.")
+
+    if object_name["type"] != "IDENTIFIER":
+        raise CompilerError("Syntax Error", f"Expected object name, found '{object_name['value']}'.")
+
+    return {
+        "node_type": "object_inst",
+        "class_name": class_name["value"],
+        "object_name": object_name["value"]
     }
 
 
 def is_seek_call(tokens):
     if len(tokens) == 2:
         return tokens[0]["value"] == INPUT_KEYWORD and tokens[1]["value"] == ":"
-
     if len(tokens) == 3:
-        return (
-            tokens[0]["value"] == INPUT_KEYWORD and
-            tokens[1]["value"] == ":" and
-            tokens[2]["type"] == "TEXT"
-        )
-
+        return tokens[0]["value"] == INPUT_KEYWORD and tokens[1]["value"] == ":" and tokens[2]["type"] == "TEXT"
     return False
 
 
@@ -270,14 +372,12 @@ def safe_numeric_eval(expression_text):
         if not isinstance(node, allowed_nodes):
             raise CompilerError(
                 "Semantic Error",
-                "Only numeric arithmetic using +, -, *, / is allowed in expressions.",
-                "Panic Mode Recovery (Discard invalid expression)"
+                "Only numeric arithmetic using +, -, *, / is allowed in expressions."
             )
         if isinstance(node, ast.Constant) and not isinstance(node.value, (int, float)):
             raise CompilerError(
                 "Semantic Error",
-                "Arithmetic expressions must only contain numeric values.",
-                "Panic Mode Recovery (Discard invalid expression)"
+                "Arithmetic expressions must only contain numeric values."
             )
 
     return eval(compile(tree, "<expr>", "eval"), {"__builtins__": {}}, {})
@@ -288,34 +388,18 @@ def convert_input_to_type(user_value, datatype):
         try:
             return int(user_value)
         except ValueError:
-            raise CompilerError(
-                "Semantic Error",
-                f"Type mismatch. Expected {DATATYPES[datatype]} input, but received '{user_value}'.",
-                "Type Coercion or Re-enter Input"
-            )
-
+            raise CompilerError("Semantic Error", f"Expected Integer input, but received '{user_value}'.")
     if datatype == "mrkdbgn":
         try:
             return float(user_value)
         except ValueError:
-            raise CompilerError(
-                "Semantic Error",
-                f"Type mismatch. Expected {DATATYPES[datatype]} input, but received '{user_value}'.",
-                "Type Coercion or Re-enter Input"
-            )
-
+            raise CompilerError("Semantic Error", f"Expected Big Decimal input, but received '{user_value}'.")
     if datatype == "mrktxt":
         return user_value
-
     if datatype == "mrksym":
         if len(user_value) != 1:
-            raise CompilerError(
-                "Semantic Error",
-                f"Type mismatch. A '{datatype}' value must contain exactly one character.",
-                "Trim input to one character or Re-enter Input"
-            )
+            raise CompilerError("Semantic Error", "A mrksym value must contain exactly one character.")
         return user_value
-
     raise CompilerError("Semantic Error", f"Unknown datatype '{datatype}'.")
 
 
@@ -337,11 +421,7 @@ def evaluate_expression(tokens, expected_datatype=None):
             fallback_value = "0.0"
 
         user_value = safe_user_input(prompt_text, fallback=fallback_value)
-
-        if expected_datatype is None:
-            return user_value
-
-        return convert_input_to_type(user_value, expected_datatype)
+        return convert_input_to_type(user_value, expected_datatype) if expected_datatype else user_value
 
     if len(tokens) == 1:
         token = tokens[0]
@@ -356,48 +436,33 @@ def evaluate_expression(tokens, expected_datatype=None):
             return token["value"][1:-1]
         if token["type"] == "IDENTIFIER":
             name = token["value"]
-            if name not in SYMBOL_TABLE:
-                raise CompilerError(
-                    "Semantic Error",
-                    f"Identifier '{name}' was used before being bound in the cabin registry.",
-                    "Panic Mode Recovery (Discard statement)"
-                )
-            return SYMBOL_TABLE[name]["value"]
+            if name in SYMBOL_TABLE:
+                return SYMBOL_TABLE[name]["value"]
+            if name in OBJECT_TABLE:
+                return OBJECT_TABLE[name]
+            raise CompilerError(
+                "Semantic Error",
+                f"Identifier '{name}' was used before being bound in the cabin registry."
+            )
 
     expression_parts = []
-
     for token in tokens:
         if token["type"] in {"INTEGER", "FLOAT"}:
             expression_parts.append(token["value"])
         elif token["type"] == "IDENTIFIER":
             name = token["value"]
             if name not in SYMBOL_TABLE:
-                raise CompilerError(
-                    "Semantic Error",
-                    f"Identifier '{name}' was used before being bound in the cabin registry.",
-                    "Panic Mode Recovery (Discard statement)"
-                )
-
+                raise CompilerError("Semantic Error", f"Identifier '{name}' is not defined for arithmetic.")
             bound_value = SYMBOL_TABLE[name]["value"]
             if not isinstance(bound_value, (int, float)):
-                raise CompilerError(
-                    "Semantic Error",
-                    f"Identifier '{name}' is not numeric and cannot join an arithmetic expression.",
-                    "Panic Mode Recovery (Discard invalid expression)"
-                )
-
+                raise CompilerError("Semantic Error", f"Identifier '{name}' is not numeric.")
             expression_parts.append(str(bound_value))
         elif token["value"] in {"+", "-", "*", "/", "(", ")"}:
             expression_parts.append(token["value"])
         else:
-            raise CompilerError(
-                "Semantic Error",
-                f"Invalid token '{token['value']}' inside expression.",
-                "Panic Mode Recovery (Discard invalid expression)"
-            )
+            raise CompilerError("Semantic Error", f"Invalid token '{token['value']}' inside expression.")
 
-    expression_text = " ".join(expression_parts)
-    return safe_numeric_eval(expression_text)
+    return safe_numeric_eval(" ".join(expression_parts))
 
 
 def type_matches(datatype, value):
@@ -412,93 +477,64 @@ def type_matches(datatype, value):
     return False
 
 
-def story_lore(ast_node, result):
-    if ast_node["node_type"] == "declaration":
-        identifier = ast_node["identifier"]
-        value = result[2]
+def evaluate_condition(tokens):
+    ops = {"==", "!=", ">", "<", ">=", "<="}
+    op_index = None
 
-        lore_map = {
-            "wakeup": (
-                "Story Lore:\n"
-                "You stumble in the forest, your footing gives way, and the earth swallows you whole.\n"
-                "Hours later, you wake in a narrow bed inside an unfamiliar cabin.\n"
-                "Someone found you. Someone chose not to let you die."
-            ),
-            "photo": (
-                "Story Lore:\n"
-                "Beside the lamp rests a picture frame.\n"
-                "A mother and a young daughter smile in front of this same cabin.\n"
-                "The child looks about seven, still new to the world."
-            ),
-            "note": (
-                "Story Lore:\n"
-                "A note sticks halfway out from an old drawer.\n"
-                "Its words do not feel like a puzzle, but a plea.\n"
-                "Someone wanted the truth found gently."
-            ),
-            "framekey": (
-                "Story Lore:\n"
-                "Behind the photograph is a hidden slit in the wood.\n"
-                "Inside it lies a small iron key.\n"
-                "The frame was never only a memory. It was also a lock."
-            ),
-            "letters": (
-                "Story Lore:\n"
-                "Inside the newly opened drawer are letters, dozens of them.\n"
-                "All sealed. All unread.\n"
-                "You realize with a chill that you may be the first person to ever open them."
-            ),
-            "truth": (
-                "Story Lore:\n"
-                "The truth settles over the room like dust and mourning.\n"
-                "The daughter died in this cabin years ago.\n"
-                "Her mother never truly left, because grief made leaving impossible."
-            ),
-            "savior": (
-                "Story Lore:\n"
-                "The name in the final letter is no stranger's.\n"
-                "It belongs to the mother herself, who kept the cabin unchanged.\n"
-                "You were not trapped here by malice, but led here to bear witness."
-            )
-        }
+    for i, token in enumerate(tokens):
+        if token["value"] in ops:
+            op_index = i
+            break
 
-        if identifier in lore_map:
-            story("\n" + lore_map[identifier])
-        else:
-            story(f"\nStory Lore:\nThe rune '{identifier}' takes shape in the quiet cabin with value {value}.")
+    if op_index is None:
+        raise CompilerError("Semantic Error", "Condition requires a comparison operator.")
 
-    elif ast_node["node_type"] == "output":
-        expr_tokens = ast_node["expression"]
+    left_tokens = tokens[:op_index]
+    op = tokens[op_index]["value"]
+    right_tokens = tokens[op_index + 1:]
 
-        if len(expr_tokens) == 1 and expr_tokens[0]["type"] == "IDENTIFIER":
-            name = expr_tokens[0]["value"]
-            lore_map = {
-                "photo": (
-                    "Story Lore:\n"
-                    "You hold the frame closer to the light.\n"
-                    "The woman's smile is tired but warm.\n"
-                    "The child leans toward her as if she never feared the world."
-                ),
-                "note": (
-                    "Story Lore:\n"
-                    "You read the note aloud.\n"
-                    "The room does not answer, but somehow feels less empty.\n"
-                    "Whoever wrote it trusted that one day, someone would listen."
-                ),
-                "letters": (
-                    "Story Lore:\n"
-                    "You unfold the brittle pages one by one.\n"
-                    "Every letter is addressed to the daughter.\n"
-                    "None were ever sent. None were ever meant to be."
-                ),
-                "truth": (
-                    "Story Lore:\n"
-                    "At last, the cabin stops feeling like a riddle and starts feeling like a grave kept warm by memory.\n"
-                    "The mother stayed because love gave her nowhere else to go."
-                )
-            }
-            if name in lore_map:
-                story("\n" + lore_map[name])
+    if not left_tokens or not right_tokens:
+        raise CompilerError("Semantic Error", "Incomplete condition.")
+
+    left_value = evaluate_expression(left_tokens)
+    right_value = evaluate_expression(right_tokens)
+
+    if op == "==":
+        return left_value == right_value
+    if op == "!=":
+        return left_value != right_value
+    if op == ">":
+        return left_value > right_value
+    if op == "<":
+        return left_value < right_value
+    if op == ">=":
+        return left_value >= right_value
+    if op == "<=":
+        return left_value <= right_value
+
+    raise CompilerError("Semantic Error", f"Unsupported condition operator '{op}'.")
+
+
+def rebuild_statement_tokens(action_tokens):
+    return action_tokens + [{"type": "DELIMITER", "value": DELIMITER}]
+
+
+def get_action_gate_reason(action_tokens):
+    if not action_tokens:
+        return None
+
+    if len(action_tokens) >= 2 and action_tokens[0]["value"] in OUTPUT_KEYWORDS:
+        expr = action_tokens[2:] if len(action_tokens) > 2 else []
+        if len(expr) == 1 and expr[0]["type"] == "IDENTIFIER" and expr[0]["value"] == "drawer":
+            if "framekey" not in SYMBOL_TABLE:
+                return "The drawer does not open. You do not yet carry the key hidden behind the picture frame."
+
+    if len(action_tokens) >= 2 and action_tokens[0]["value"] in DATATYPES:
+        identifier = action_tokens[1]["value"]
+        if identifier == "drawer" and "framekey" not in SYMBOL_TABLE:
+            return "The drawer remains sealed. Memory recognizes that the framekey has not yet been found."
+
+    return None
 
 
 def semantic_analyze(ast_node):
@@ -512,17 +548,20 @@ def semantic_analyze(ast_node):
         if not type_matches(datatype, value):
             raise CompilerError(
                 "Semantic Error",
-                f"Type mismatch. Cannot bind value '{value}' to variable '{identifier}' of type '{datatype}'.",
-                "Type Coercion or Discard Assignment"
+                f"Type mismatch. Cannot bind value '{value}' to variable '{identifier}' of type '{datatype}'."
             )
 
         if datatype == "mrkdbgn" and isinstance(value, int):
             value = float(value)
 
-        SYMBOL_TABLE[identifier] = {
-            "type": datatype,
-            "value": value
-        }
+        if identifier == "drawer" and "framekey" not in SYMBOL_TABLE:
+            raise CompilerError(
+                "Semantic Error",
+                "The drawer cannot be bound as opened because the framekey has not been found yet.",
+                "Find the framekey first, then return to the drawer."
+            )
+
+        SYMBOL_TABLE[identifier] = {"type": datatype, "value": value}
 
         story(f"  Meaning confirmed: '{identifier}' belongs to type '{datatype}'.")
         story(f"  Binding successful: '{identifier}' is now stored in the cabin registry.")
@@ -533,21 +572,148 @@ def semantic_analyze(ast_node):
         story("  The cabin listens. Your words are ready to be revealed.")
         return ("output", value)
 
+    if ast_node["node_type"] == "class_decl":
+        class_name = ast_node["class_name"]
+        CLASS_TABLE[class_name] = {"name": class_name}
+        story(f"  Structure forged: class '{class_name}' is now known to the cabin.")
+        return ("class_decl", class_name)
+
+    if ast_node["node_type"] == "object_inst":
+        class_name = ast_node["class_name"]
+        object_name = ast_node["object_name"]
+
+        if class_name not in CLASS_TABLE:
+            raise CompilerError(
+                "Semantic Error",
+                f"Cannot bind object '{object_name}' because class '{class_name}' does not exist."
+            )
+
+        OBJECT_TABLE[object_name] = {"class": class_name}
+        story(f"  Object formed: '{object_name}' is now an instance of '{class_name}'.")
+        return ("object_inst", object_name, class_name)
+
+    if ast_node["node_type"] == "eyes":
+        condition_result = evaluate_condition(ast_node["condition"])
+        story(f"  Eyes condition checked: result is {condition_result}.")
+
+        if condition_result:
+            gate_reason = get_action_gate_reason(ast_node["action_tokens"])
+            if gate_reason:
+                story("  The eyes are open, but memory itself blocks your way.")
+                return ("eyes", False, None, gate_reason)
+
+            story("  The eyes are open. Truth may be seen.")
+            nested_tokens = rebuild_statement_tokens(ast_node["action_tokens"])
+            nested_ast, _ = parse(nested_tokens)
+            nested_result = semantic_analyze(nested_ast)
+            return ("eyes", True, nested_result, None)
+
+        story("  The eyes remain closed. You shall not pass.")
+        return ("eyes", False, None, "The eyes remain closed. You shall not pass.")
+
+    if ast_node["node_type"] == "stream":
+        iteration = 0
+        last_result = None
+
+        while evaluate_condition(ast_node["condition"]):
+            if iteration >= MAX_STREAM_ITERATIONS:
+                story("  The stream is halted by a safety boundary. The cabin refuses endless repetition.")
+                break
+
+            story(f"  Stream iteration {iteration + 1} begins.")
+            nested_tokens = rebuild_statement_tokens(ast_node["action_tokens"])
+            nested_ast, _ = parse(nested_tokens)
+            last_result = semantic_analyze(nested_ast)
+            iteration += 1
+
+        story(f"  The stream settles after {iteration} iteration(s).")
+        return ("stream", iteration, last_result)
+
     raise CompilerError("Semantic Error", "Unknown AST node encountered.")
 
 
-def print_symbol_table():
-    if not SYMBOL_TABLE:
-        story("\n[SYMBOL TABLE] The registry is still empty.")
-        return
+def story_lore(ast_node, result):
+    node_type = ast_node["node_type"]
 
-    story("\n[SYMBOL TABLE] Cabin Registry")
-    story("-" * 52)
-    story(f"{'Identifier':<18}{'Datatype':<16}{'Value':<18}")
-    story("-" * 52)
-    for name, info in SYMBOL_TABLE.items():
-        story(f"{name:<18}{info['type']:<16}{str(info['value']):<18}")
-    story("-" * 52)
+    if node_type == "declaration":
+        identifier = ast_node["identifier"]
+        assigned_value = result[2]
+
+        symbolic_value_lore = {
+            ("photo", "remembered"): "The photograph is no longer just an object. It becomes the first wound opened by memory.",
+            ("note", "unfolded"): "The note is carefully unfolded, as if grief trusted your hands enough to continue.",
+            ("letters", "unsealed"): "The silence inside the drawer finally breaks. The mother's hidden years of mourning are no longer alone.",
+            ("truth", "veilgone"): "Nothing remains covered now. The cabin stops being a riddle and becomes a memorial.",
+        }
+
+        default_lore = {
+            "wakeup": "You wake in the cabin because someone chose to save you from the forest trap.",
+            "drawer": "The locked drawer yields, as though it had been waiting for the one person who noticed the frame.",
+            "grief": "The order of the cabin reveals itself as grief given form.",
+            "mother": "The mother's presence lingers in every preserved object and untouched corner.",
+            "child": "The child is gone, yet every clue bends back toward her.",
+            "framekey": "The hidden key behind the photograph proves that memory here is never merely decorative.",
+            "code": "Even numbers in this place feel ceremonial, as if the cabin remembers through counting.",
+        }
+
+        if (identifier, assigned_value) in symbolic_value_lore:
+            story(f"\nStory Lore:\n{symbolic_value_lore[(identifier, assigned_value)]}")
+        elif identifier in default_lore:
+            story(f"\nStory Lore:\n{default_lore[identifier]}")
+
+    elif node_type == "output":
+        if len(ast_node["expression"]) == 1 and ast_node["expression"][0]["type"] == "IDENTIFIER":
+            name = ast_node["expression"][0]["value"]
+            lore_map = {
+                "photo": "The photograph shows a mother and daughter outside this same cabin, before grief made it still.",
+                "note": "Reading the note aloud makes the silence feel less empty, as though someone needed these words heard.",
+                "letters": "The letters reveal the mother writing to her daughter long after the daughter's death.",
+                "truth": "You realize you were not brought here merely to survive. You were brought here to witness.",
+                "grief": "The cabin's logic becomes clear: its locks, clues, and preserved objects are all forms of mourning.",
+                "drawer": "The drawer opens only because memory now recognizes that you have earned it."
+            }
+            if name in lore_map:
+                story(f"\nStory Lore:\n{lore_map[name]}")
+
+    elif node_type == "class_decl":
+        story("\nStory Lore:\nA new structure has been forged, as if the cabin itself is learning how to preserve memory in form.")
+
+    elif node_type == "object_inst":
+        story("\nStory Lore:\nWhat was once only an idea now takes shape. In this house, even structures feel like memory made tangible.")
+
+    elif node_type == "eyes":
+        if result[1]:
+            story("\nStory Lore:\nYour eyes are open, and the cabin permits what was once hidden to be seen.")
+        else:
+            reason = result[3]
+            if reason and "key" in reason.lower():
+                story(f"\nStory Lore:\n{reason}")
+            else:
+                story("\nStory Lore:\nYour eyes remain closed. You shall not pass.")
+
+    elif node_type == "stream":
+        story("\nStory Lore:\nThe world moves with the chaotic flow of life. What returns is not always repetition, but motion that refuses stillness.")
+
+
+def print_symbol_table():
+    if SYMBOL_TABLE:
+        story("\n[SYMBOL TABLE] Cabin Registry")
+        story("-" * 52)
+        story(f"{'Identifier':<18}{'Datatype':<16}{'Value':<18}")
+        story("-" * 52)
+        for name, info in SYMBOL_TABLE.items():
+            story(f"{name:<18}{info['type']:<16}{str(info['value']):<18}")
+        story("-" * 52)
+
+    if CLASS_TABLE:
+        story("\n[CLASS TABLE]")
+        for name in CLASS_TABLE:
+            story(f"  Class: {name}")
+
+    if OBJECT_TABLE:
+        story("\n[OBJECT TABLE]")
+        for name, info in OBJECT_TABLE.items():
+            story(f"  Object: {name} -> Class: {info['class']}")
 
 
 def compile_line(source_code):
@@ -564,12 +730,7 @@ def compile_line(source_code):
         for err in lexical_errors:
             story(f"  Error found: {err.message}")
             story(f"  Recovery: {err.recovery}")
-
-        story(
-            "\nStory Lore:\n"
-            "You try to name what you have seen, but the cabin does not accept careless runes.\n"
-            "Some truths cannot begin in disorder."
-        )
+        story("\nStory Lore:\nYou try to name what you have seen, but the cabin does not accept careless runes.")
         story("\nStatus: COMPILATION FAILED")
         return
 
@@ -590,10 +751,18 @@ def compile_line(source_code):
 
         if result[0] == "output":
             story(f"\n[OUTPUT] {result[1]}")
-        else:
-            identifier = result[1]
-            value = result[2]
-            story(f"\n[BINDING RESULT] '{identifier}' now holds: {value}")
+        elif result[0] == "declaration":
+            story(f"\n[BINDING RESULT] '{result[1]}' now holds: {result[2]}")
+        elif result[0] == "class_decl":
+            story(f"\n[CLASS RESULT] '{result[1]}' has been forged.")
+        elif result[0] == "object_inst":
+            story(f"\n[OBJECT RESULT] '{result[1]}' now exists as an instance of '{result[2]}'.")
+        elif result[0] == "eyes":
+            story(f"\n[EYES RESULT] Condition outcome: {result[1]}")
+            if result[3]:
+                story(f"  Gate: {result[3]}")
+        elif result[0] == "stream":
+            story(f"\n[STREAM RESULT] Total iterations: {result[1]}")
 
         story_lore(ast_node, result)
         print_symbol_table()
@@ -605,17 +774,9 @@ def compile_line(source_code):
         story(f"  Recovery: {err.recovery}")
 
         if err.phase == "Syntax Error":
-            story(
-                "\nStory Lore:\n"
-                "The sentence breaks apart before the room can understand it.\n"
-                "In this cabin, even grief demands proper form."
-            )
+            story("\nStory Lore:\nThe sentence breaks apart before the room can understand it.")
         elif err.phase == "Semantic Error":
-            story(
-                "\nStory Lore:\n"
-                "You reached for meaning before you were ready.\n"
-                "Some drawers do not open until the right memory has been found."
-            )
+            story("\nStory Lore:\nYou reached for meaning before the cabin believed you were ready.")
 
         print_symbol_table()
         story("\nStatus: COMPILATION FAILED")
@@ -626,7 +787,7 @@ def main():
     print(f"Welcome to {LANGUAGE_NAME}")
     print("Enter one line at a time.")
     print(f"Type '{LANGUAGE_NAME}' to exit.")
-    print("Your symbols remain remembered until you exit.")
+    print("Memory is preserved while the program runs.")
     print("=" * 72)
 
     while True:
