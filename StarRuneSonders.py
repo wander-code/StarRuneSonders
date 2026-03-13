@@ -48,7 +48,7 @@ def tokenize(source_code):
         ("FLOAT", r"\d+\.\d+"),
         ("INVALID_IDENTIFIER", r"\d+[A-Za-z_][A-Za-z0-9_]*"),
         ("INTEGER", r"\d+"),
-        ("OPERATOR", r"~~|!=|>=|<=|[+\-*/><]"),
+        ("OPERATOR", r"~~|!~|>~|<~|[+\-*/><]"),
         ("ASSIGN", r"~"),
         ("COLON", r":"),
         ("LPAREN", r"\("),
@@ -481,7 +481,7 @@ def type_matches(datatype, value):
 
 
 def evaluate_condition(tokens):
-    ops = {EQUALITY_OPERATOR, "!=", ">", "<", ">=", "<="}
+    ops = {EQUALITY_OPERATOR, "!~", ">", "<", ">~", "<~"}
     op_index = None
 
     for i, token in enumerate(tokens):
@@ -504,15 +504,15 @@ def evaluate_condition(tokens):
 
     if op == EQUALITY_OPERATOR:
         return left_value == right_value
-    if op == "!=":
+    if op == "!~":
         return left_value != right_value
     if op == ">":
         return left_value > right_value
     if op == "<":
         return left_value < right_value
-    if op == ">=":
+    if op == ">~":
         return left_value >= right_value
-    if op == "<=":
+    if op == "<~":
         return left_value <= right_value
 
     raise CompilerError("Semantic Error", f"Unsupported condition operator '{op}'.")
