@@ -14,7 +14,6 @@ OUTPUT_KEYWORDS = {"reveal", "echo"}
 INPUT_KEYWORD = "seek"
 ASSIGNMENT_OPERATOR = "~"
 DELIMITER = "."
-
 SYMBOL_TABLE = {}
 
 
@@ -31,17 +30,14 @@ def story(line=""):
 
 
 def tokenize(source_code):
-    """
-    Lexer:
-    Converts the source line into tokens while catching invalid identifiers and unknown symbols.
-    """
     token_specification = [
-        ("STRING", r'"[^"\n]*"'),
+        ("TEXT", r"\*[^*\n]*\*"),
         ("CHAR", r"'[^'\n]'"),
         ("FLOAT", r"\d+\.\d+"),
         ("INVALID_IDENTIFIER", r"\d+[A-Za-z_][A-Za-z0-9_]*"),
         ("INTEGER", r"\d+"),
         ("ASSIGN", r"~"),
+        ("COLON", r":"),
         ("OPERATOR", r"==|!=|>=|<=|[+\-*/><]"),
         ("LPAREN", r"\("),
         ("RPAREN", r"\)"),
@@ -99,14 +95,16 @@ def classify_token(token):
         return "Input Keyword"
     if kind == "ASSIGN":
         return "Assignment Operator"
+    if kind == "COLON":
+        return "Colon"
     if kind == "DELIMITER":
         return "Delimiter"
     if kind == "INTEGER":
         return "Integer Literal"
     if kind == "FLOAT":
         return "Float Literal"
-    if kind == "STRING":
-        return "String Literal"
+    if kind == "TEXT":
+        return "Text Literal"
     if kind == "CHAR":
         return "Char Literal"
     if kind == "IDENTIFIER":
@@ -121,28 +119,28 @@ def classify_token(token):
 
 
 def print_tokens(tokens):
-    story("\n[LEXER] The wanderer searches the forest floor for signs...")
+    story("\n[LEXER] The forest listens as you speak into the dark...")
     for token in tokens:
-        story(f"  Rune found: {token['value']:<12} -> {classify_token(token)}")
+        story(f"  Rune found: {token['value']:<20} -> {classify_token(token)}")
+
+
+def safe_user_input(prompt, fallback="0"):
+    try:
+        return input(prompt)
+    except OSError:
+        print(f"[INPUT FALLBACK] Interactive input unavailable. Using fallback value: {fallback}")
+        return fallback
 
 
 def parse(tokens):
-    """
-    Parser:
-    Supports one-line statements only.
-    Grammar:
-      <declaration> -> <datatype> <identifier> ~ <expression> .
-      <output>      -> <output_keyword> <expression> .
-    """
     syntax_notes = []
 
     if not tokens:
         raise CompilerError("Syntax Error", "No statement found.", "Panic Mode Recovery (Discard empty input)")
 
-    # Phrase-level recovery for missing delimiter
     if tokens[-1]["value"] != DELIMITER:
         syntax_notes.append(
-            "Phrase-Level Recovery: Missing delimiter '.' detected. The tavern keeper quietly places it at the end."
+            "Phrase-Level Recovery: Missing delimiter '.' detected. The sentence had holes, so the house sealed it for you."
         )
         tokens = tokens + [{"type": "DELIMITER", "value": DELIMITER}]
 
@@ -157,14 +155,14 @@ def parse(tokens):
     first = core_tokens[0]["value"]
 
     if first in DATATYPES:
-        story("\n[PARSER] The wanderer studies the tavern ledger...")
+        story("\n[PARSER] You study the cabin's strange grammar...")
         story("  Rule checked: <declaration> -> <datatype> <identifier> ~ <expression> .")
         ast_node = parse_declaration(core_tokens)
         return ast_node, syntax_notes
 
     if first in OUTPUT_KEYWORDS:
-        story("\n[PARSER] The wanderer reads the wall inscription...")
-        story("  Rule checked: <output> -> <output_keyword> <expression> .")
+        story("\n[PARSER] You speak into the stillness of the room...")
+        story("  Rule checked: <output> -> <output_keyword> : <expression> .")
         ast_node = parse_output(core_tokens)
         return ast_node, syntax_notes
 
@@ -221,45 +219,46 @@ def parse_declaration(core_tokens):
 
 
 def parse_output(core_tokens):
-    if len(core_tokens) < 2:
+    if len(core_tokens) < 3:
         raise CompilerError(
             "Syntax Error",
-            "Incomplete output statement. Expected: <output_keyword> <expression>",
+            "Incomplete output statement. Expected: <output_keyword> : <expression>",
             "Panic Mode Recovery (Discard incomplete output)"
         )
+
+    if core_tokens[1]["value"] != ":":
+        raise CompilerError(
+            "Syntax Error",
+            f"Expected ':' after output keyword, but found '{core_tokens[1]['value']}'.",
+            "Panic Mode Recovery (Discard malformed output)"
+        )
+
+    expression_tokens = core_tokens[2:]
+    if not expression_tokens:
+        raise CompilerError("Syntax Error", "Missing expression after ':' in output statement.")
 
     return {
         "node_type": "output",
         "keyword": core_tokens[0]["value"],
-        "expression": core_tokens[1:]
+        "expression": expression_tokens
     }
 
 
 def is_seek_call(tokens):
-    """
-    Valid forms:
-      seek()
-      seek("Prompt here")
-    """
-    if len(tokens) == 3:
-        return tokens[0]["value"] == INPUT_KEYWORD and tokens[1]["value"] == "(" and tokens[2]["value"] == ")"
+    if len(tokens) == 2:
+        return tokens[0]["value"] == INPUT_KEYWORD and tokens[1]["value"] == ":"
 
-    if len(tokens) == 4:
+    if len(tokens) == 3:
         return (
             tokens[0]["value"] == INPUT_KEYWORD and
-            tokens[1]["value"] == "(" and
-            tokens[2]["type"] == "STRING" and
-            tokens[3]["value"] == ")"
+            tokens[1]["value"] == ":" and
+            tokens[2]["type"] == "TEXT"
         )
 
     return False
 
 
 def safe_numeric_eval(expression_text):
-    """
-    Safe arithmetic evaluation using AST.
-    Only allows numbers and + - * / and parentheses.
-    """
     allowed_nodes = (
         ast.Expression, ast.BinOp, ast.UnaryOp, ast.Constant,
         ast.Add, ast.Sub, ast.Mult, ast.Div, ast.UAdd, ast.USub
@@ -291,7 +290,7 @@ def convert_input_to_type(user_value, datatype):
         except ValueError:
             raise CompilerError(
                 "Semantic Error",
-                f"Type mismatch. Expected {DATATYPES[datatype]} input for '{datatype}', but received '{user_value}'.",
+                f"Type mismatch. Expected {DATATYPES[datatype]} input, but received '{user_value}'.",
                 "Type Coercion or Re-enter Input"
             )
 
@@ -301,7 +300,7 @@ def convert_input_to_type(user_value, datatype):
         except ValueError:
             raise CompilerError(
                 "Semantic Error",
-                f"Type mismatch. Expected {DATATYPES[datatype]} input for '{datatype}', but received '{user_value}'.",
+                f"Type mismatch. Expected {DATATYPES[datatype]} input, but received '{user_value}'.",
                 "Type Coercion or Re-enter Input"
             )
 
@@ -321,26 +320,29 @@ def convert_input_to_type(user_value, datatype):
 
 
 def evaluate_expression(tokens, expected_datatype=None):
-    """
-    Evaluates literals, identifiers, seek(...), and arithmetic expressions.
-    """
     if not tokens:
         raise CompilerError("Semantic Error", "Missing expression to evaluate.")
 
-    # seek()
     if is_seek_call(tokens):
-        prompt_text = "Enter value: "
-        if len(tokens) == 4:
+        prompt_text = "Speak your answer: "
+        if len(tokens) == 3:
             prompt_text = tokens[2]["value"][1:-1]
 
-        user_value = input(prompt_text)
+        fallback_value = "0"
+        if expected_datatype == "mrktxt":
+            fallback_value = "memory"
+        elif expected_datatype == "mrksym":
+            fallback_value = "K"
+        elif expected_datatype == "mrkdbgn":
+            fallback_value = "0.0"
+
+        user_value = safe_user_input(prompt_text, fallback=fallback_value)
 
         if expected_datatype is None:
             return user_value
 
         return convert_input_to_type(user_value, expected_datatype)
 
-    # Single-token expression
     if len(tokens) == 1:
         token = tokens[0]
 
@@ -348,7 +350,7 @@ def evaluate_expression(tokens, expected_datatype=None):
             return int(token["value"])
         if token["type"] == "FLOAT":
             return float(token["value"])
-        if token["type"] == "STRING":
+        if token["type"] == "TEXT":
             return token["value"][1:-1]
         if token["type"] == "CHAR":
             return token["value"][1:-1]
@@ -357,12 +359,11 @@ def evaluate_expression(tokens, expected_datatype=None):
             if name not in SYMBOL_TABLE:
                 raise CompilerError(
                     "Semantic Error",
-                    f"Identifier '{name}' was used before being bound in the tavern registry.",
+                    f"Identifier '{name}' was used before being bound in the cabin registry.",
                     "Panic Mode Recovery (Discard statement)"
                 )
             return SYMBOL_TABLE[name]["value"]
 
-    # Multi-token arithmetic expression
     expression_parts = []
 
     for token in tokens:
@@ -373,7 +374,7 @@ def evaluate_expression(tokens, expected_datatype=None):
             if name not in SYMBOL_TABLE:
                 raise CompilerError(
                     "Semantic Error",
-                    f"Identifier '{name}' was used before being bound in the tavern registry.",
+                    f"Identifier '{name}' was used before being bound in the cabin registry.",
                     "Panic Mode Recovery (Discard statement)"
                 )
 
@@ -411,11 +412,97 @@ def type_matches(datatype, value):
     return False
 
 
+def story_lore(ast_node, result):
+    if ast_node["node_type"] == "declaration":
+        identifier = ast_node["identifier"]
+        value = result[2]
+
+        lore_map = {
+            "wakeup": (
+                "Story Lore:\n"
+                "You stumble in the forest, your footing gives way, and the earth swallows you whole.\n"
+                "Hours later, you wake in a narrow bed inside an unfamiliar cabin.\n"
+                "Someone found you. Someone chose not to let you die."
+            ),
+            "photo": (
+                "Story Lore:\n"
+                "Beside the lamp rests a picture frame.\n"
+                "A mother and a young daughter smile in front of this same cabin.\n"
+                "The child looks about seven, still new to the world."
+            ),
+            "note": (
+                "Story Lore:\n"
+                "A note sticks halfway out from an old drawer.\n"
+                "Its words do not feel like a puzzle, but a plea.\n"
+                "Someone wanted the truth found gently."
+            ),
+            "framekey": (
+                "Story Lore:\n"
+                "Behind the photograph is a hidden slit in the wood.\n"
+                "Inside it lies a small iron key.\n"
+                "The frame was never only a memory. It was also a lock."
+            ),
+            "letters": (
+                "Story Lore:\n"
+                "Inside the newly opened drawer are letters, dozens of them.\n"
+                "All sealed. All unread.\n"
+                "You realize with a chill that you may be the first person to ever open them."
+            ),
+            "truth": (
+                "Story Lore:\n"
+                "The truth settles over the room like dust and mourning.\n"
+                "The daughter died in this cabin years ago.\n"
+                "Her mother never truly left, because grief made leaving impossible."
+            ),
+            "savior": (
+                "Story Lore:\n"
+                "The name in the final letter is no stranger's.\n"
+                "It belongs to the mother herself, who kept the cabin unchanged.\n"
+                "You were not trapped here by malice, but led here to bear witness."
+            )
+        }
+
+        if identifier in lore_map:
+            story("\n" + lore_map[identifier])
+        else:
+            story(f"\nStory Lore:\nThe rune '{identifier}' takes shape in the quiet cabin with value {value}.")
+
+    elif ast_node["node_type"] == "output":
+        expr_tokens = ast_node["expression"]
+
+        if len(expr_tokens) == 1 and expr_tokens[0]["type"] == "IDENTIFIER":
+            name = expr_tokens[0]["value"]
+            lore_map = {
+                "photo": (
+                    "Story Lore:\n"
+                    "You hold the frame closer to the light.\n"
+                    "The woman's smile is tired but warm.\n"
+                    "The child leans toward her as if she never feared the world."
+                ),
+                "note": (
+                    "Story Lore:\n"
+                    "You read the note aloud.\n"
+                    "The room does not answer, but somehow feels less empty.\n"
+                    "Whoever wrote it trusted that one day, someone would listen."
+                ),
+                "letters": (
+                    "Story Lore:\n"
+                    "You unfold the brittle pages one by one.\n"
+                    "Every letter is addressed to the daughter.\n"
+                    "None were ever sent. None were ever meant to be."
+                ),
+                "truth": (
+                    "Story Lore:\n"
+                    "At last, the cabin stops feeling like a riddle and starts feeling like a grave kept warm by memory.\n"
+                    "The mother stayed because love gave her nowhere else to go."
+                )
+            }
+            if name in lore_map:
+                story("\n" + lore_map[name])
+
+
 def semantic_analyze(ast_node):
-    """
-    Semantic analysis + binding
-    """
-    story("\n[SEMANTIC] The wanderer follows the tavern clues and checks what each rune truly means...")
+    story("\n[SEMANTIC] Meaning gathers like candlelight in the room...")
 
     if ast_node["node_type"] == "declaration":
         datatype = ast_node["datatype"]
@@ -429,7 +516,6 @@ def semantic_analyze(ast_node):
                 "Type Coercion or Discard Assignment"
             )
 
-        # Normalize int result for mrkdbgn if expression returns int
         if datatype == "mrkdbgn" and isinstance(value, int):
             value = float(value)
 
@@ -439,12 +525,12 @@ def semantic_analyze(ast_node):
         }
 
         story(f"  Meaning confirmed: '{identifier}' belongs to type '{datatype}'.")
-        story(f"  Binding successful: '{identifier}' is now stored in the tavern registry.")
+        story(f"  Binding successful: '{identifier}' is now stored in the cabin registry.")
         return ("declaration", identifier, value)
 
     if ast_node["node_type"] == "output":
         value = evaluate_expression(ast_node["expression"])
-        story(f"  The clue glows. Output can now be revealed.")
+        story("  The cabin listens. Your words are ready to be revealed.")
         return ("output", value)
 
     raise CompilerError("Semantic Error", "Unknown AST node encountered.")
@@ -455,29 +541,35 @@ def print_symbol_table():
         story("\n[SYMBOL TABLE] The registry is still empty.")
         return
 
-    story("\n[SYMBOL TABLE] Tavern Registry")
-    story("-" * 45)
-    story(f"{'Identifier':<15}{'Datatype':<15}{'Value':<15}")
-    story("-" * 45)
+    story("\n[SYMBOL TABLE] Cabin Registry")
+    story("-" * 52)
+    story(f"{'Identifier':<18}{'Datatype':<16}{'Value':<18}")
+    story("-" * 52)
     for name, info in SYMBOL_TABLE.items():
-        story(f"{name:<15}{info['type']:<15}{str(info['value']):<15}")
-    story("-" * 45)
+        story(f"{name:<18}{info['type']:<16}{str(info['value']):<18}")
+    story("-" * 52)
 
 
 def compile_line(source_code):
-    story("=" * 68)
+    story("\n" + "=" * 72)
     story(f"{LANGUAGE_NAME} Front-End Compiler")
-    story("Story Mode: Lost in the forest, awakened in a tavern, solving the mystery through code.")
-    story("=" * 68)
+    story("Story Mode: Lost in the forest, awakened in a cabin, uncovering grief through clues.")
+    story("=" * 72)
 
     tokens, lexical_errors = tokenize(source_code)
     print_tokens(tokens)
 
     if lexical_errors:
-        story("\n[LEXER RESULT] Trouble in the forest path:")
+        story("\n[LEXER RESULT] The house rejects what was spoken incorrectly:")
         for err in lexical_errors:
             story(f"  Error found: {err.message}")
             story(f"  Recovery: {err.recovery}")
+
+        story(
+            "\nStory Lore:\n"
+            "You try to name what you have seen, but the cabin does not accept careless runes.\n"
+            "Some truths cannot begin in disorder."
+        )
         story("\nStatus: COMPILATION FAILED")
         return
 
@@ -503,6 +595,7 @@ def compile_line(source_code):
             value = result[2]
             story(f"\n[BINDING RESULT] '{identifier}' now holds: {value}")
 
+        story_lore(ast_node, result)
         print_symbol_table()
         story("\nStatus: COMPILATION SUCCESS")
 
@@ -510,13 +603,50 @@ def compile_line(source_code):
         story(f"\n[{err.phase.upper()}]")
         story(f"  Error found: {err.message}")
         story(f"  Recovery: {err.recovery}")
+
+        if err.phase == "Syntax Error":
+            story(
+                "\nStory Lore:\n"
+                "The sentence breaks apart before the room can understand it.\n"
+                "In this cabin, even grief demands proper form."
+            )
+        elif err.phase == "Semantic Error":
+            story(
+                "\nStory Lore:\n"
+                "You reached for meaning before you were ready.\n"
+                "Some drawers do not open until the right memory has been found."
+            )
+
         print_symbol_table()
         story("\nStatus: COMPILATION FAILED")
 
 
 def main():
-    source_code = input("\nEnter one StarRuneSonders line: ").strip()
-    compile_line(source_code)
+    print("=" * 72)
+    print(f"Welcome to {LANGUAGE_NAME}")
+    print("Enter one line at a time.")
+    print(f"Type '{LANGUAGE_NAME}' to exit.")
+    print("Your symbols remain remembered until you exit.")
+    print("=" * 72)
+
+    while True:
+        try:
+            source_code = input("\nEnter one StarRuneSonders line: ").strip()
+        except OSError:
+            print("Interactive input is not available in this environment.")
+            print("Running default test line once, then exiting.")
+            compile_line("mrkn wakeup ~ 1.")
+            break
+
+        if not source_code:
+            print("Empty line ignored.")
+            continue
+
+        if source_code == LANGUAGE_NAME:
+            print(f"\nThe cabin falls silent. Exiting {LANGUAGE_NAME}...")
+            break
+
+        compile_line(source_code)
 
 
 if __name__ == "__main__":
