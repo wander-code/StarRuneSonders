@@ -19,6 +19,7 @@ CLASS_KEYWORD = "forge"
 OBJECT_KEYWORD = "bind"
 
 ASSIGNMENT_OPERATOR = "~"
+EQUALITY_OPERATOR = "~~"
 DELIMITER = "."
 
 SYMBOL_TABLE = {}
@@ -47,9 +48,9 @@ def tokenize(source_code):
         ("FLOAT", r"\d+\.\d+"),
         ("INVALID_IDENTIFIER", r"\d+[A-Za-z_][A-Za-z0-9_]*"),
         ("INTEGER", r"\d+"),
+        ("OPERATOR", r"~~|!=|>=|<=|[+\-*/><]"),
         ("ASSIGN", r"~"),
         ("COLON", r":"),
-        ("OPERATOR", r"==|!=|>=|<=|[+\-*/><]"),
         ("LPAREN", r"\("),
         ("RPAREN", r"\)"),
         ("COMMA", r","),
@@ -259,10 +260,12 @@ def parse_output(core_tokens):
             f"Expected ':' after output keyword, but found '{core_tokens[1]['value']}'."
         )
 
+    expression_tokens = core_tokens[2:]
+
     return {
         "node_type": "output",
         "keyword": core_tokens[0]["value"],
-        "expression": core_tokens[2:]
+        "expression": expression_tokens
     }
 
 
@@ -478,7 +481,7 @@ def type_matches(datatype, value):
 
 
 def evaluate_condition(tokens):
-    ops = {"==", "!=", ">", "<", ">=", "<="}
+    ops = {EQUALITY_OPERATOR, "!=", ">", "<", ">=", "<="}
     op_index = None
 
     for i, token in enumerate(tokens):
@@ -499,7 +502,7 @@ def evaluate_condition(tokens):
     left_value = evaluate_expression(left_tokens)
     right_value = evaluate_expression(right_tokens)
 
-    if op == "==":
+    if op == EQUALITY_OPERATOR:
         return left_value == right_value
     if op == "!=":
         return left_value != right_value
@@ -568,7 +571,25 @@ def semantic_analyze(ast_node):
         return ("declaration", identifier, value)
 
     if ast_node["node_type"] == "output":
-        value = evaluate_expression(ast_node["expression"])
+        expr = ast_node["expression"]
+
+        if len(expr) == 1 and expr[0]["type"] == "IDENTIFIER" and expr[0]["value"] == "all":
+            story("  The cabin listens. All remembered truths are being revealed.")
+
+            full_reveal = [
+                "You fell into a hidden forest trap and woke inside a quiet cabin.",
+                "Beside the bed were a lamp, a photograph, and the feeling that time had stopped.",
+                "The photograph showed a weary but warm mother and her young daughter in front of this same cabin.",
+                "A note pointed toward what had been loved most, and behind the picture frame a hidden key was waiting.",
+                "That key opened a locked drawer, where unread letters had been kept for years.",
+                "The letters were written by the mother to her daughter long after the daughter had died in the cabin.",
+                "The mother never truly left, because grief turned the house into a memorial.",
+                "You were not brought here to solve a horror puzzle, but to witness memory and the love that refused to disappear."
+            ]
+
+            return ("output_all", full_reveal)
+
+        value = evaluate_expression(expr)
         story("  The cabin listens. Your words are ready to be revealed.")
         return ("output", value)
 
@@ -644,6 +665,7 @@ def story_lore(ast_node, result):
             ("note", "unfolded"): "The note is carefully unfolded, as if grief trusted your hands enough to continue.",
             ("letters", "unsealed"): "The silence inside the drawer finally breaks. The mother's hidden years of mourning are no longer alone.",
             ("truth", "veilgone"): "Nothing remains covered now. The cabin stops being a riddle and becomes a memorial.",
+            ("grief", "witnessed"): "At last, the house is understood for what it truly is: grief preserved so it would not vanish unheard."
         }
 
         default_lore = {
@@ -664,12 +686,21 @@ def story_lore(ast_node, result):
     elif node_type == "output":
         if len(ast_node["expression"]) == 1 and ast_node["expression"][0]["type"] == "IDENTIFIER":
             name = ast_node["expression"][0]["value"]
+
+            if name == "all":
+                story(
+                    "\nStory Lore:\n"
+                    "The cabin no longer offers clues one at a time.\n"
+                    "Everything rises together, and the full weight of the house can finally be understood."
+                )
+                return
+
             lore_map = {
                 "photo": "The photograph shows a mother and daughter outside this same cabin, before grief made it still.",
                 "note": "Reading the note aloud makes the silence feel less empty, as though someone needed these words heard.",
                 "letters": "The letters reveal the mother writing to her daughter long after the daughter's death.",
                 "truth": "You realize you were not brought here merely to survive. You were brought here to witness.",
-                "grief": "The cabin's logic becomes clear: its locks, clues, and preserved objects are all forms of mourning.",
+                "grief": "You understand that the cabin was never a trap of horror, but a memorial where love and grief became architecture.",
                 "drawer": "The drawer opens only because memory now recognizes that you have earned it."
             }
             if name in lore_map:
@@ -716,7 +747,38 @@ def print_symbol_table():
             story(f"  Object: {name} -> Class: {info['class']}")
 
 
-def compile_line(source_code):
+def run_full_story_demo():
+    demo_lines = [
+        "mrkn wakeup ~ 1.",
+        "mrktxt photo ~ *remembered*.",
+        "reveal:photo.",
+        "mrktxt note ~ *unfolded*.",
+        "reveal:note.",
+        "mrksym framekey ~ 'K'.",
+        "eyes:framekey ~~ 'K':mrkn drawer ~ 1.",
+        "mrktxt letters ~ *unsealed*.",
+        "reveal:letters.",
+        "mrktxt truth ~ *veilgone*.",
+        "eyes:wakeup ~~ 1:reveal:truth.",
+        "mrktxt grief ~ *witnessed*.",
+        "reveal:grief."
+    ]
+
+    story("\n" + "=" * 72)
+    story("REVEAL ALL MODE")
+    story("The cabin chooses to show everything at once.")
+    story("=" * 72)
+
+    for line in demo_lines:
+        story(f"\n[DEMO INPUT] {line}")
+        compile_line(line, from_demo=True)
+
+
+def compile_line(source_code, from_demo=False):
+    if source_code.strip() == "reveal:all." and not from_demo:
+        run_full_story_demo()
+        return
+
     story("\n" + "=" * 72)
     story(f"{LANGUAGE_NAME} Front-End Compiler")
     story("Story Mode: Lost in the forest, awakened in a cabin, uncovering grief through clues.")
@@ -751,6 +813,10 @@ def compile_line(source_code):
 
         if result[0] == "output":
             story(f"\n[OUTPUT] {result[1]}")
+        elif result[0] == "output_all":
+            story("\n[OUTPUT]")
+            for item in result[1]:
+                story(f"  {item}")
         elif result[0] == "declaration":
             story(f"\n[BINDING RESULT] '{result[1]}' now holds: {result[2]}")
         elif result[0] == "class_decl":
