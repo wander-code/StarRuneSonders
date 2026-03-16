@@ -1,6 +1,6 @@
 import re
 import ast
-
+#i might add UI or at least a basic windows window
 LANGUAGE_NAME = "StarRuneSonders"
 
 DATATYPES = {
@@ -575,7 +575,7 @@ def semantic_analyze(ast_node):
 
         if len(expr) == 1 and expr[0]["type"] == "IDENTIFIER" and expr[0]["value"] == "all":
             story("  The cabin listens. All remembered truths are being revealed.")
-
+            #basic output story
             full_reveal = [
                 "You fell into a hidden forest trap and woke inside a quiet cabin.",
                 "Beside the bed were a lamp, a photograph, and the feeling that time had stopped.",
