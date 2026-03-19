@@ -9,7 +9,6 @@ DATATYPES = {
     "mrktxt": "Text",
     "mrksym": "Symbol"
 }
-
 OUTPUT_KEYWORDS = {"reveal", "echo"}
 INPUT_KEYWORD = "seek"
 
