@@ -527,14 +527,31 @@ def get_action_gate_reason(action_tokens):
 
     if len(action_tokens) >= 2 and action_tokens[0]["value"] in OUTPUT_KEYWORDS:
         expr = action_tokens[2:] if len(action_tokens) > 2 else []
-        if len(expr) == 1 and expr[0]["type"] == "IDENTIFIER" and expr[0]["value"] == "drawer":
-            if "framekey" not in SYMBOL_TABLE:
+        if len(expr) == 1 and expr[0]["type"] == "IDENTIFIER":
+            name = expr[0]["value"]
+            if name == "drawer" and "framekey" not in SYMBOL_TABLE:
                 return "The drawer does not open. You do not yet carry the key hidden behind the picture frame."
+            if name == "letters" and "drawer" not in SYMBOL_TABLE:
+                return "The letters remain hidden. The drawer has not been opened yet."
+            if name == "truth" and "letters" not in SYMBOL_TABLE:
+                return "The truth cannot be revealed yet. The letters have not been uncovered."
+            if name == "grief" and "truth" not in SYMBOL_TABLE:
+                return "Grief cannot be understood yet. The truth has not been uncovered."
+            if name == "all":
+                needed = ["wakeup", "photo", "note", "framekey", "drawer", "letters", "truth", "grief"]
+                if not all(name in SYMBOL_TABLE for name in needed):
+                    return "Not every memory is in place yet. Complete the full story path before using reveal:all."
 
     if len(action_tokens) >= 2 and action_tokens[0]["value"] in DATATYPES:
         identifier = action_tokens[1]["value"]
         if identifier == "drawer" and "framekey" not in SYMBOL_TABLE:
             return "The drawer remains sealed. Memory recognizes that the framekey has not yet been found."
+        if identifier == "letters" and "drawer" not in SYMBOL_TABLE:
+            return "The letters remain hidden because the drawer has not been opened yet."
+        if identifier == "truth" and "letters" not in SYMBOL_TABLE:
+            return "The truth cannot be bound yet because the letters have not been uncovered."
+        if identifier == "grief" and "truth" not in SYMBOL_TABLE:
+            return "Grief cannot be witnessed yet because the truth has not been uncovered."
 
     return None
 
@@ -562,6 +579,24 @@ def semantic_analyze(ast_node):
                 "The drawer cannot be bound as opened because the framekey has not been found yet.",
                 "Find the framekey first, then return to the drawer."
             )
+        if identifier == "letters" and "drawer" not in SYMBOL_TABLE:
+            raise CompilerError(
+                "Semantic Error",
+                "The letters cannot be uncovered because the drawer has not been opened yet.",
+                "Open the drawer first, then return to the letters."
+            )
+        if identifier == "truth" and "letters" not in SYMBOL_TABLE:
+            raise CompilerError(
+                "Semantic Error",
+                "The truth cannot be uncovered because the letters have not been revealed yet.",
+                "Uncover the letters first, then return to the truth."
+            )
+        if identifier == "grief" and "truth" not in SYMBOL_TABLE:
+            raise CompilerError(
+                "Semantic Error",
+                "Grief cannot be witnessed because the truth has not been uncovered yet.",
+                "Uncover the truth first, then return to grief."
+            )
 
         SYMBOL_TABLE[identifier] = {"type": datatype, "value": value}
 
@@ -573,6 +608,13 @@ def semantic_analyze(ast_node):
         expr = ast_node["expression"]
 
         if len(expr) == 1 and expr[0]["type"] == "IDENTIFIER" and expr[0]["value"] == "all":
+            needed = ["wakeup", "photo", "note", "framekey", "drawer", "letters", "truth", "grief"]
+            if not all(name in SYMBOL_TABLE for name in needed):
+                raise CompilerError(
+                    "Semantic Error",
+                    "Not every memory has been uncovered yet, so reveal:all. cannot run.",
+                    "Complete the full story path before using reveal:all."
+                )
             story("  The cabin listens. All remembered truths are being revealed.")
             #basic output story
             full_reveal = [
@@ -774,10 +816,6 @@ def run_full_story_demo():
 
 
 def compile_line(source_code, from_demo=False):
-    if source_code.strip() == "reveal:all." and not from_demo:
-        run_full_story_demo()
-        return
-
     story("\n" + "=" * 72)
     story(f"{LANGUAGE_NAME} Front-End Compiler")
     story("Story Mode: Lost in the forest, awakened in a cabin, uncovering grief through clues.")

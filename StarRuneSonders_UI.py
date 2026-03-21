@@ -347,19 +347,25 @@ class StarRuneSondersUI:
     def infer_scene_from_command(self, command: str, terminal_text: str):
         cmd = command.strip().lower()
 
-        reveal_map = {
+        scene_map = {
             'mrkn wakeup ~ 1.': 'wakeup',
+            'mrktxt photo ~ *remembered*.': 'photo',
             'reveal:photo.': 'photo',
+            'mrktxt note ~ *unfolded*.': 'note',
             'reveal:note.': 'note',
-            'reveal:framekey.': 'framekey',
-            'reveal:drawer.': 'drawer',
+            "mrksym framekey ~ 'k'.": 'framekey',
+            "eyes:framekey ~~ 'k':mrkn drawer ~ 1.": 'drawer',
+            'mrktxt letters ~ *unsealed*.': 'letters',
             'reveal:letters.': 'letters',
+            'mrktxt truth ~ *veilgone*.': 'truth',
+            'eyes:wakeup ~~ 1:mrktxt truth ~ *veilgone*.': 'truth',
             'eyes:wakeup ~~ 1:reveal:truth.': 'truth',
+            'mrktxt grief ~ *witnessed*.': 'grief',
             'reveal:grief.': 'grief',
             'reveal:all.': 'all',
         }
 
-        return reveal_map.get(cmd)
+        return scene_map.get(cmd)
 
     def advance_story(self):
         if self.story_stage < len(self.story_beats):
@@ -420,8 +426,11 @@ class StarRuneSondersUI:
         self._append_terminal('')
 
         scene_key = self.infer_scene_from_command(command, terminal_text)
-        if scene_key:
+        success = 'Status: COMPILATION SUCCESS' in terminal_text
+        if scene_key and success:
             self._load_scene(scene_key)
+        elif scene_key and not success:
+            self._append_story('The command matched a story beat, but the compiler rejected it, so the scene did not advance.')
 
         story_lore_lines = [line for line in output_buffer if line.startswith('Story Lore:')]
         if story_lore_lines:
